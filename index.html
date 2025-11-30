@@ -12,170 +12,167 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', Arial, sans-serif;
+            background: #ffffff;
             overflow: hidden;
+            width: 100vw;
             height: 100vh;
         }
 
         #pdf-container {
             width: 100%;
-            height: 100vh;
+            height: 100%;
             display: flex;
-            justify-content: center;
             align-items: center;
+            justify-content: center;
             overflow: auto;
-            background: #1a1a1a;
+            position: relative;
         }
 
-        #pdf-viewer {
+        #pdf-canvas {
             max-width: 100%;
-            height: auto;
-            transition: transform 0.3s ease;
+            max-height: 100%;
+            display: block;
+            transition: transform 0.2s ease;
             transform-origin: center center;
         }
 
         #zoom-controls {
             position: fixed;
-            bottom: 30px;
-            right: 30px;
+            bottom: 24px;
+            right: 24px;
             display: flex;
-            gap: 10px;
-            z-index: 1000;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px;
+            border: 1px solid #000;
+            backdrop-filter: blur(10px);
         }
 
         .zoom-btn {
-            width: 50px;
-            height: 50px;
-            border: none;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            color: white;
-            font-size: 24px;
+            width: 40px;
+            height: 40px;
+            border: 1px solid #000;
+            background: #fff;
             cursor: pointer;
+            font-size: 18px;
+            font-weight: 300;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.2s ease;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            font-family: inherit;
         }
 
         .zoom-btn:hover {
-            background: rgba(255, 255, 255, 0.25);
-            transform: scale(1.1);
+            background: #000;
+            color: #fff;
         }
 
         .zoom-btn:active {
             transform: scale(0.95);
         }
 
-        #zoom-level {
+        #loading {
             position: fixed;
-            bottom: 90px;
-            right: 30px;
-            padding: 8px 16px;
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            color: white;
-            border-radius: 20px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             font-size: 14px;
-            font-weight: 500;
-            z-index: 1000;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            color: #666;
+            letter-spacing: 0.05em;
         }
 
-        @media (max-width: 768px) {
-            #zoom-controls {
-                bottom: 20px;
-                right: 20px;
-                gap: 8px;
-            }
-
-            .zoom-btn {
-                width: 45px;
-                height: 45px;
-                font-size: 20px;
-            }
-
-            #zoom-level {
-                bottom: 75px;
-                right: 20px;
-                font-size: 12px;
-                padding: 6px 12px;
-            }
+        .hidden {
+            display: none;
         }
     </style>
 </head>
 <body>
+    <div id="loading">LOADING...</div>
     <div id="pdf-container">
-        <img id="pdf-viewer" src="aiteahouse-workflow-diagram.pdf" alt="AI Tea House Workflow Diagram">
+        <canvas id="pdf-canvas"></canvas>
     </div>
-
-    <div id="zoom-level">100%</div>
-    
     <div id="zoom-controls">
-        <button class="zoom-btn" id="zoom-out" aria-label="ズームアウト">−</button>
-        <button class="zoom-btn" id="zoom-reset" aria-label="リセット">⟲</button>
-        <button class="zoom-btn" id="zoom-in" aria-label="ズームイン">+</button>
+        <button class="zoom-btn" id="zoom-out" title="Zoom Out">−</button>
+        <button class="zoom-btn" id="zoom-reset" title="Reset">⟲</button>
+        <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-        let currentZoom = 1;
-        const minZoom = 0.5;
-        const maxZoom = 3;
-        const zoomStep = 0.2;
+        // PDF.js setup
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-        const pdfViewer = document.getElementById('pdf-viewer');
-        const zoomLevel = document.getElementById('zoom-level');
-        const zoomInBtn = document.getElementById('zoom-in');
-        const zoomOutBtn = document.getElementById('zoom-out');
-        const zoomResetBtn = document.getElementById('zoom-reset');
+        let pdfDoc = null;
+        let currentScale = 1.0;
+        const canvas = document.getElementById('pdf-canvas');
+        const ctx = canvas.getContext('2d');
+        const loading = document.getElementById('loading');
+        const container = document.getElementById('pdf-container');
 
-        function updateZoom() {
-            pdfViewer.style.transform = `scale(${currentZoom})`;
-            zoomLevel.textContent = `${Math.round(currentZoom * 100)}%`;
+        // Load PDF
+        const url = 'aiteahouse-workflow-diagram.pdf';
+
+        pdfjsLib.getDocument(url).promise.then(pdf => {
+            pdfDoc = pdf;
+            renderPage(1);
+            loading.classList.add('hidden');
+        }).catch(error => {
+            console.error('Error loading PDF:', error);
+            loading.textContent = 'ERROR LOADING PDF';
+        });
+
+        function renderPage(pageNumber) {
+            pdfDoc.getPage(pageNumber).then(page => {
+                const viewport = page.getViewport({ scale: currentScale });
+                
+                // Set canvas dimensions
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+
+                // Render PDF page
+                const renderContext = {
+                    canvasContext: ctx,
+                    viewport: viewport
+                };
+                
+                page.render(renderContext);
+            });
         }
 
-        zoomInBtn.addEventListener('click', () => {
-            if (currentZoom < maxZoom) {
-                currentZoom = Math.min(currentZoom + zoomStep, maxZoom);
-                updateZoom();
+        // Zoom controls
+        document.getElementById('zoom-in').addEventListener('click', () => {
+            currentScale += 0.25;
+            renderPage(1);
+        });
+
+        document.getElementById('zoom-out').addEventListener('click', () => {
+            if (currentScale > 0.5) {
+                currentScale -= 0.25;
+                renderPage(1);
             }
         });
 
-        zoomOutBtn.addEventListener('click', () => {
-            if (currentZoom > minZoom) {
-                currentZoom = Math.max(currentZoom - zoomStep, minZoom);
-                updateZoom();
-            }
+        document.getElementById('zoom-reset').addEventListener('click', () => {
+            currentScale = 1.0;
+            renderPage(1);
         });
 
-        zoomResetBtn.addEventListener('click', () => {
-            currentZoom = 1;
-            updateZoom();
-        });
-
-        // キーボードショートカット
+        // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.key === '+' || e.key === '=') {
-                zoomInBtn.click();
-            } else if (e.key === '-' || e.key === '_') {
-                zoomOutBtn.click();
-            } else if (e.key === '0') {
-                zoomResetBtn.click();
-            }
-        });
-
-        // マウスホイールでズーム
-        pdfViewer.addEventListener('wheel', (e) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                if (e.deltaY < 0) {
-                    zoomInBtn.click();
-                } else {
-                    zoomOutBtn.click();
+                currentScale += 0.25;
+                renderPage(1);
+            } else if (e.key === '-') {
+                if (currentScale > 0.5) {
+                    currentScale -= 0.25;
+                    renderPage(1);
                 }
+            } else if (e.key === '0') {
+                currentScale = 1.0;
+                renderPage(1);
             }
         });
     </script>
